@@ -379,13 +379,16 @@ public class TestDFSIO implements Tool {
     @Override // IOMapperBase
     void collectStats(OutputCollector<Text, Text> output, 
                       String name,
-                      long execTime, 
+                      long tStart,
+                      long tEnd,
                       Long objSize) throws IOException {
+      execTime = tStart - tEnd;
       long totalSize = objSize.longValue();
       float ioRateMbSec = (float)totalSize * 1000 / (execTime * MEGA);
       LOG.info("Number of bytes processed = " + totalSize);
       LOG.info("Exec time = " + execTime);
       LOG.info("IO rate = " + ioRateMbSec);
+      String stats = String.format("%d-%d-%f", tStart, tEnd, ioRateMbSec);
       
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_LONG + "tasks"),
           new Text(String.valueOf(1)));
@@ -395,6 +398,8 @@ public class TestDFSIO implements Tool {
           new Text(String.valueOf(execTime)));
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_FLOAT + "rate"),
           new Text(String.valueOf(ioRateMbSec*1000)));
+      output.collect(new Text(AccumulatingReducer.VALUE_TYPE_STRING + "stats"),
+          new Text(stats));
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_FLOAT + "sqrate"),
           new Text(String.valueOf(ioRateMbSec*ioRateMbSec*1000)));
     }
@@ -1011,6 +1016,27 @@ public class TestDFSIO implements Tool {
         break;
       }
     }
+  }
+
+
+  class SortByTime implements Comparator<SimpleEntry<int, float>> {
+      public int compare(SimpleEntry<int, float> a, SimpleEntry<int, float> a) {
+          return a.getKey() - b.getKey();
+      }
+  }
+
+  private void analyzeThroughput(String stats) {
+    String[] throughputs = stats.split(";");
+    ArrayList<Entry> throughput_change_events = new ArrayList<Entry>(throughputs.size()*2);
+    for (String throughput : throughputs) {
+      String[] values = throughput.split("-");
+      assert values.length == 3 : "Incorrect stats:" + throughput;
+      throughput_change_events.add(
+          new SimpleEntry<int, float>(Integer.parseInt(values[0]), Float.parseFloat(values[2])));
+      throughput_change_events.add(
+          new SimpleEntry<int, float>(Integer.parseInt(values[1]), Float.parseFloat(-values[2])));
+    }
+    Collections.sort(throughput_change_events, new SortByTime());
   }
 
   private void analyzeResult( FileSystem fs,

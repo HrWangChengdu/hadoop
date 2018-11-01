@@ -102,7 +102,8 @@ public abstract class IOMapperBase<T> extends Configured
    */
   abstract void collectStats(OutputCollector<Text, Text> output, 
                              String name, 
-                             long execTime, 
+                             long startTime,
+                             long endTime,
                              T doIOReturnValue) throws IOException;
   
   /**
@@ -137,7 +138,7 @@ public abstract class IOMapperBase<T> extends Configured
     }
     long tEnd = System.currentTimeMillis();
     long execTime = tEnd - tStart;
-    collectStats(output, name, execTime, statValue);
+    collectStats(output, name, tStart, tEnd, statValue);
     
     reporter.setStatus("finished " + name + " ::host = " + hostName);
   }
