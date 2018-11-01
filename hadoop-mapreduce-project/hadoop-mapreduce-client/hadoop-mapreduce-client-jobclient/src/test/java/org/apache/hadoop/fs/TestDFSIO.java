@@ -1019,24 +1019,76 @@ public class TestDFSIO implements Tool {
   }
 
 
-  class SortByTime implements Comparator<SimpleEntry<int, float>> {
-      public int compare(SimpleEntry<int, float> a, SimpleEntry<int, float> a) {
+  class SortByKey implements Comparator<SimpleEntry<long, float>> {
+      public int compare(SimpleEntry<long, float> a, SimpleEntry<long, float> a) {
           return a.getKey() - b.getKey();
       }
   }
 
-  private void analyzeThroughput(String stats) {
+  class SortByValue implements Comparator<SimpleEntry<long, float>> {
+      public int compare(SimpleEntry<long, float> a, SimpleEntry<long, float> a) {
+          return a.getKey() - b.getKey();
+      }
+  }
+
+  private String[] analyzeThroughput(String stats) {
     String[] throughputs = stats.split(";");
     ArrayList<Entry> throughput_change_events = new ArrayList<Entry>(throughputs.size()*2);
     for (String throughput : throughputs) {
       String[] values = throughput.split("-");
       assert values.length == 3 : "Incorrect stats:" + throughput;
       throughput_change_events.add(
-          new SimpleEntry<int, float>(Integer.parseInt(values[0]), Float.parseFloat(values[2])));
+          new SimpleEntry<long, float>(Long.parseLong(values[0]), Float.parseFloat(values[2])));
       throughput_change_events.add(
-          new SimpleEntry<int, float>(Integer.parseInt(values[1]), Float.parseFloat(-values[2])));
+          new SimpleEntry<long, float>(Long.parseLong(values[1]), Float.parseFloat(-values[2])));
     }
-    Collections.sort(throughput_change_events, new SortByTime());
+    Collections.sort(throughput_change_events, new SortByKey());
+    ArrayList<Entry> throughput_segments = new ArrayList<Entry>();
+
+    boolean inited = false;
+    long last_t = 0;
+    float cur_throughput = 0.0;
+
+    // Array to throughput-segment
+    for (SimpleEntry<long, float> t : throughput_change_events) {
+        if (!inited) {
+            inited = true;
+            last_t = t.getKey();
+            cur_throughput = t.getValue();
+        } else {
+            throughput_segments.add(
+                new SimpleEntry<long, float>(t.getKey()-last_t, cur_throughput));
+            cur_throughput += t.getValue();
+            last_t = t.getKey();
+        }
+    }
+
+    long[] time_lengths = throughput_change_events.stream().map(t -> t.getKey());
+    float[] bytes = throughput_change_events.stream().map(t -> t.getKey() & t.getValue());
+
+    long total_time = time_lengths.stream().sum();
+    float total_mbytes = bytes.stream().sum();
+
+    float[] percentiles = {99, 90, 75, 50, 25, 10, 1};
+    ArrayList<float> throughput_percentiles = new ArrayList<float>(percentiles.length);
+    String[] outputs = new String(percentiles.length + 1);
+    outputs[0] = String.format("Average throughput is %f mb/s", total_mbytes/total_time);
+    float cur_percentile = 0.0;
+    int cnt = 0;
+    int percentile_cnt = 0;
+
+    for (float percentile : percentiles) {
+        while (cnt < throughput_segments.length &&
+                cur_percentile + throughput_segments[cnt].getKey()/total_time < (1-percentiles)) {
+            cur_percentile += throughput_segments[cnt].getKey();
+            ++cnt;
+        }
+        throughput_percentiles.add(
+            (cnt < throughput_segments.length)?(throughput_segments[i].getKey()):(0));
+        outputs[percentile_cnt+1] = String.format("Average throughput is %f mb/s", total_mbytes/total_time);
+        ++percentile_cnt;
+    }
+    return outputs;
   }
 
   private void analyzeResult( FileSystem fs,
