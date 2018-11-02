@@ -189,8 +189,10 @@ public class DistributedFSCheck extends TestCase {
     
     void collectStats(OutputCollector<Text, Text> output, 
                       String name, 
-                      long execTime, 
+                      long tStart,
+                      long tEnd,
                       Object corruptedBlock) throws IOException {
+      long execTime = tStart - tEnd;
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_LONG + "blocks"),
           new Text(String.valueOf(1)));
 
@@ -204,7 +206,7 @@ public class DistributedFSCheck extends TestCase {
       float ioRateMbSec = (float)totalSize * 1000 / (execTime * 0x100000);
       LOG.info("Number of bytes processed = " + totalSize);
       LOG.info("Exec time = " + execTime);
-      LOG.info("IO rate = " + ioRateMbSec);
+      LOG.info("IO xx rate = " + ioRateMbSec);
       
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_LONG + "size"),
           new Text(String.valueOf(totalSize)));
@@ -340,7 +342,7 @@ public class DistributedFSCheck extends TestCase {
       resultLines.add("-----   Performance  ----- : ");
       resultLines.add("         Total MBytes read: " + size/MEGA);
       resultLines.add("         Throughput mb/sec: " + (float)size * 1000.0 / (time * MEGA));
-      resultLines.add("    Average IO rate mb/sec: " + rate / 1000 / blocks);
+      resultLines.add("    Average IO xx rate mb/sec: " + rate / 1000 / blocks);
       resultLines.add("        Test exec time sec: " + (float)execTime / 1000);
     }
 

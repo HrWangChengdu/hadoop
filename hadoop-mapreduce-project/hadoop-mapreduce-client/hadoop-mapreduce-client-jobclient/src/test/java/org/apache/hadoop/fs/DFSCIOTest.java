@@ -170,13 +170,15 @@ public class DFSCIOTest {
     
     void collectStats(OutputCollector<Text, Text> output, 
                       String name,
-                      long execTime, 
+                      long tStart,
+                      long tEnd,
                       Long objSize) throws IOException {
+      long execTime = tStart - tEnd;
       long totalSize = objSize.longValue();
       float ioRateMbSec = (float)totalSize * 1000 / (execTime * MEGA);
       LOG.info("Number of bytes processed = " + totalSize);
       LOG.info("Exec time = " + execTime);
-      LOG.info("IO rate = " + ioRateMbSec);
+      LOG.info("IO XX rate = " + ioRateMbSec);
       
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_LONG + "tasks"),
           new Text(String.valueOf(1)));
@@ -530,8 +532,8 @@ public class DFSCIOTest {
       "       Number of files: " + tasks,
       "Total MBytes processed: " + size/MEGA,
       "     Throughput mb/sec: " + size * 1000.0 / (time * MEGA),
-      "Average IO rate mb/sec: " + med,
-      " Std IO rate deviation: " + stdDev,
+      "Average Ix;O rate mb/sec: " + med,
+      " Std IxO rate deviation: " + stdDev,
       "    Test exec time sec: " + (float)execTime / 1000,
       "" };
 

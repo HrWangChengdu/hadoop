@@ -30,9 +30,14 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.text.DecimalFormat;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.StringTokenizer;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.Map.Entry;
+import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
@@ -382,12 +387,12 @@ public class TestDFSIO implements Tool {
                       long tStart,
                       long tEnd,
                       Long objSize) throws IOException {
-      execTime = tStart - tEnd;
+      long execTime = tStart - tEnd;
       long totalSize = objSize.longValue();
       float ioRateMbSec = (float)totalSize * 1000 / (execTime * MEGA);
       LOG.info("Number of bytes processed = " + totalSize);
       LOG.info("Exec time = " + execTime);
-      LOG.info("IO rate = " + ioRateMbSec);
+      LOG.info("IxO rate = " + ioRateMbSec);
       String stats = String.format("%d-%d-%f", tStart, tEnd, ioRateMbSec);
       
       output.collect(new Text(AccumulatingReducer.VALUE_TYPE_LONG + "tasks"),
@@ -1019,73 +1024,79 @@ public class TestDFSIO implements Tool {
   }
 
 
-  class SortByKey implements Comparator<SimpleEntry<long, float>> {
-      public int compare(SimpleEntry<long, float> a, SimpleEntry<long, float> a) {
-          return a.getKey() - b.getKey();
+  class SortByKey implements Comparator<SimpleEntry<Long, Float>> {
+      public int compare(SimpleEntry<Long, Float> a, SimpleEntry<Long, Float> b) {
+          if (a.getKey() == b.getKey())
+              return 0;
+          else
+              return (a.getKey() < b.getKey())?(-1):(1);
       }
   }
 
-  class SortByValue implements Comparator<SimpleEntry<long, float>> {
-      public int compare(SimpleEntry<long, float> a, SimpleEntry<long, float> a) {
-          return a.getKey() - b.getKey();
+  class SortByValue implements Comparator<SimpleEntry<Long, Float>> {
+      public int compare(SimpleEntry<Long, Float> a, SimpleEntry<Long, Float> b) {
+          if (a.getKey() == b.getKey())
+              return 0;
+          else
+              return (a.getKey() < b.getKey())?(-1):(1);
       }
   }
 
   private String[] analyzeThroughput(String stats) {
     String[] throughputs = stats.split(";");
-    ArrayList<Entry> throughput_change_events = new ArrayList<Entry>(throughputs.size()*2);
+    ArrayList<SimpleEntry<Long, Float>> throughput_change_events =
+        new ArrayList<SimpleEntry<Long, Float>>(throughputs.length*2);
     for (String throughput : throughputs) {
       String[] values = throughput.split("-");
       assert values.length == 3 : "Incorrect stats:" + throughput;
       throughput_change_events.add(
-          new SimpleEntry<long, float>(Long.parseLong(values[0]), Float.parseFloat(values[2])));
+          new SimpleEntry<Long, Float>(Long.parseLong(values[0]), Float.parseFloat(values[2])));
       throughput_change_events.add(
-          new SimpleEntry<long, float>(Long.parseLong(values[1]), Float.parseFloat(-values[2])));
+          new SimpleEntry<Long, Float>(Long.parseLong(values[1]), -Float.parseFloat(values[2])));
     }
     Collections.sort(throughput_change_events, new SortByKey());
-    ArrayList<Entry> throughput_segments = new ArrayList<Entry>();
+    ArrayList<SimpleEntry<Long, Float>> throughput_segments = new ArrayList<SimpleEntry<Long, Float>>();
 
     boolean inited = false;
     long last_t = 0;
-    float cur_throughput = 0.0;
+    double cur_throughput = 0.0;
 
     // Array to throughput-segment
-    for (SimpleEntry<long, float> t : throughput_change_events) {
+    for (SimpleEntry<Long, Float> t : throughput_change_events) {
         if (!inited) {
             inited = true;
             last_t = t.getKey();
             cur_throughput = t.getValue();
         } else {
             throughput_segments.add(
-                new SimpleEntry<long, float>(t.getKey()-last_t, cur_throughput));
+                new SimpleEntry<Long, Float>(t.getKey()-last_t, (float)cur_throughput));
             cur_throughput += t.getValue();
             last_t = t.getKey();
         }
     }
 
-    long[] time_lengths = throughput_change_events.stream().map(t -> t.getKey());
-    float[] bytes = throughput_change_events.stream().map(t -> t.getKey() & t.getValue());
+    long total_time = throughput_change_events.stream().mapToLong(t -> (long)t.getKey()).sum();
+    float total_mbytes = (float)throughput_change_events.stream().mapToDouble(t -> (long)t.getKey() * (float)t.getValue()).sum();
 
-    long total_time = time_lengths.stream().sum();
-    float total_mbytes = bytes.stream().sum();
-
-    float[] percentiles = {99, 90, 75, 50, 25, 10, 1};
-    ArrayList<float> throughput_percentiles = new ArrayList<float>(percentiles.length);
-    String[] outputs = new String(percentiles.length + 1);
-    outputs[0] = String.format("Average throughput is %f mb/s", total_mbytes/total_time);
-    float cur_percentile = 0.0;
+    int[] percentiles = {99, 90, 75, 50, 25, 10, 1};
+    ArrayList<Float> throughput_percentiles = new ArrayList<Float>(percentiles.length);
+    String[] outputs = new String[percentiles.length + 2];
+    outputs[0] = stats;
+    outputs[1] = String.format("Average throughput is %f mb/s", total_mbytes/total_time);
+    int prefix_cnt = 2;
+    double cur_percentile = 0.0;
     int cnt = 0;
     int percentile_cnt = 0;
+    double tmp_throughput = 0.0;
 
-    for (float percentile : percentiles) {
-        while (cnt < throughput_segments.length &&
-                cur_percentile + throughput_segments[cnt].getKey()/total_time < (1-percentiles)) {
-            cur_percentile += throughput_segments[cnt].getKey();
+    for (int percentile : percentiles) {
+        while (cnt < throughput_segments.size() &&
+                cur_percentile + throughput_segments.get(cnt).getKey()/total_time < (1-percentile/100.0)) {
+            cur_percentile += throughput_segments.get(cnt).getKey()/total_time;
             ++cnt;
         }
-        throughput_percentiles.add(
-            (cnt < throughput_segments.length)?(throughput_segments[i].getKey()):(0));
-        outputs[percentile_cnt+1] = String.format("Average throughput is %f mb/s", total_mbytes/total_time);
+        tmp_throughput = (cnt < throughput_segments.size())?(throughput_segments.get(cnt).getValue()):(0);
+        outputs[percentile_cnt+prefix_cnt] = String.format("%d Percentile throughput is %f mb/s", percentile, tmp_throughput);
         ++percentile_cnt;
     }
     return outputs;
@@ -1102,6 +1113,7 @@ public class TestDFSIO implements Tool {
     long time = 0;
     float rate = 0;
     float sqrate = 0;
+    String stats = "";
     DataInputStream in = null;
     BufferedReader lines = null;
     try {
@@ -1121,6 +1133,8 @@ public class TestDFSIO implements Tool {
           rate = Float.parseFloat(tokens.nextToken());
         else if (attr.endsWith(":sqrate"))
           sqrate = Float.parseFloat(tokens.nextToken());
+        else if (attr.endsWith(":stats"))
+          stats = tokens.nextToken();
       }
     } finally {
       if(in != null) in.close();
@@ -1136,10 +1150,12 @@ public class TestDFSIO implements Tool {
         "        Number of files: " + tasks,
         " Total MBytes processed: " + df.format(toMB(size)),
         "      Throughput mb/sec: " + df.format(toMB(size) / msToSecs(time)),
-        " Average IO rate mb/sec: " + df.format(med),
-        "  IO rate std deviation: " + df.format(stdDev),
+        " Average IxO rate mb/sec: " + df.format(med),
+        "  IxO rate std deviation: " + df.format(stdDev),
         "     Test exec time sec: " + df.format(msToSecs(execTime)),
         "" };
+    String[] throughput_outputs = analyzeThroughput(stats);
+
 
     PrintStream res = null;
     try {
@@ -1147,6 +1163,11 @@ public class TestDFSIO implements Tool {
       for(int i = 0; i < resultLines.length; i++) {
         LOG.info(resultLines[i]);
         res.println(resultLines[i]);
+      }
+
+      for(int i = 0; i < throughput_outputs.length; i++) {
+        LOG.info(throughput_outputs[i]);
+        res.println(throughput_outputs[i]);
       }
     } finally {
       if(res != null) res.close();

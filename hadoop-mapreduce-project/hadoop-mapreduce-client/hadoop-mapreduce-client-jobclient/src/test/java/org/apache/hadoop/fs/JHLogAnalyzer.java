@@ -673,7 +673,8 @@ public class JHLogAnalyzer {
 
     void collectStats(OutputCollector<Text, Text> output, 
         String name,
-        long execTime,
+        long startTime,
+        long endTime,
         Object jobObjects) throws IOException {
     }
 
